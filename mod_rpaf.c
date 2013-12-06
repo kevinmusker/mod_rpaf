@@ -31,7 +31,7 @@ typedef struct {
     int                sethostname;
     int                sethttps;
     int                setport;
-    const char         *headername;
+    apr_array_header_t *headernames;
     apr_array_header_t *proxy_ips;
     const char         *orig_scheme;
     const char         *https_scheme;
@@ -49,6 +49,7 @@ static void *rpaf_create_server_cfg(apr_pool_t *p, server_rec *s) {
         return NULL;
 
     cfg->proxy_ips = apr_array_make(p, 0, sizeof(char *));
+    cfg->headernames = apr_array_make(p, 0, sizeof(char *));
     cfg->enable = 0;
     cfg->sethostname = 0;
 
@@ -69,12 +70,12 @@ static const char *rpaf_set_proxy_ip(cmd_parms *cmd, void *dummy, const char *pr
     return NULL;
 }
 
-static const char *rpaf_set_headername(cmd_parms *cmd, void *dummy, const char *headername) {
+static const char *rpaf_add_headername(cmd_parms *cmd, void *dummy, const char *headername) {
     server_rec *s = cmd->server;
     rpaf_server_cfg *cfg = (rpaf_server_cfg *)ap_get_module_config(s->module_config, 
                                                                    &rpaf_module);
 
-    cfg->headername = headername; 
+    *(char **)apr_array_push(cfg->headernames) = apr_pstrdup(cmd->pool, headername);
     return NULL;
 }
 
@@ -185,6 +186,8 @@ static char* last_not_in_array(apr_pool_t *pool,
 static int change_remote_ip(request_rec *r) {
     const char *fwdvalue;
     char *val;
+    int i;
+    char **headerlist;
     apr_port_t tmpport;
     apr_pool_t *tmppool;
     rpaf_server_cfg *cfg = (rpaf_server_cfg *)ap_get_module_config(r->server->module_config,
@@ -194,14 +197,18 @@ static int change_remote_ip(request_rec *r) {
         return DECLINED;
 
     if (is_in_array(r->pool, r->connection->remote_ip, cfg->proxy_ips) == 1) {
-        /* check if cfg->headername is set and if it is use
-           that instead of X-Forwarded-For by default */
-        if (cfg->headername && (fwdvalue = apr_table_get(r->headers_in, cfg->headername))) {
-            //
-        } else if ((fwdvalue = apr_table_get(r->headers_in, "X-Forwarded-For"))) {
-            //
+        /* check if cfg->headernames has elements and if it does, iterate
+           these instead of using X-Forwarded-For by default */
+        if (cfg->headernames->nelts) {
+            fwdvalue = NULL;
+            headerlist = (char **)cfg->headernames->elts;
+            for(i = 0; i < cfg->headernames->nelts; i++) {
+                if ((fwdvalue = apr_table_get(r->headers_in, headerlist[i]))) {
+                    break;
+                }
+            }
         } else {
-            return DECLINED;
+            fwdvalue = apr_table_get(r->headers_in, "X-Forwarded-For");
         }
 
         if (fwdvalue) {
@@ -307,10 +314,10 @@ static const command_rec rpaf_cmds[] = {
                  ),
     AP_INIT_TAKE1(
                  "RPAF_Header",
-                 rpaf_set_headername,
+                 rpaf_add_headername,
                  NULL,
                  RSRC_CONF,
-                 "Which header to look for when trying to find the real ip of the client in a proxy setup"
+                 "Which header(s) to look for when trying to find the real ip of the client in a proxy setup"
                  ),
     { NULL }
 };
