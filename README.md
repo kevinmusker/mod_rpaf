@@ -28,7 +28,9 @@ Sets `REMOTE_ADDR`, `HTTPS`, and `HTTP_PORT` to the values provided by an upstre
     RPAF_ProxyIPs    127.0.0.1 10.0.0.1 - What IPs to adjust requests for
 
     RPAF_Header      X-Forwarded-For    - The header to use for the real IP
-                                          address.
+                                          address. This directive can be included
+                                          multiple times in order to look for IP
+                                          information in more than one header
 
     RPAF_SetHostName (On|Off)           - Update vhost name so ServerName &
                                           ServerAlias work
